@@ -15,7 +15,8 @@ import java.util.List;
 public class BrowserUI {
     static final String HOME = "https://www.google.com";
 
-    public void start(Stage stage) {
+    public void start(Stage
+                              stage) {
         stage.setTitle("Carbon ART - Basic (Multi-file)");
 
         TabPane tabPane = new TabPane();
