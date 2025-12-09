@@ -1,0 +1,233 @@
+
+
+# 1) What this file *is* (overview)
+
+`BrowserUI` builds and shows the **main browser window** (the Stage). It assembles the toolbar (address bar, nav buttons, bookmarks), the `TabPane` that holds pages, and wires all UI events (new tab, back/forward, reload, bookmark, go, home). It delegates actual page creation and engine work to `BrowserTab` and bookmark persistence to `BookmarkManager`.
+
+---
+
+# 2) Key pieces & responsibilities (by code area)
+
+### Top: constants & UI root
+
+```java
+static final String HOME = "https://www.google.com";
+BorderPane root = new BorderPane();
+root.setTop(toolBar);
+root.setCenter(tabPane);
+Scene scene = new Scene(root, 1000, 700);
+stage.setScene(scene);
+stage.show();
+```
+
+* `HOME`: default home page loaded for new tabs and home button.
+* `BorderPane` places toolbar at top and the `TabPane` center.
+* Creates and shows the JavaFX `Scene` & `Stage`.
+
+---
+
+### Toolbar & controls (creation)
+
+```java
+ToolBar toolBar = new ToolBar();
+Button backBtn = new Button("←");
+Button forwardBtn = new Button("→");
+Button reloadBtn = new Button("⟳");
+Button homeBtn = new Button("🏠");
+TextField addressBar = new TextField();
+Button goBtn = new Button("Go");
+Button newTabBtn = new Button("+");
+Button bookmarkBtn = new Button("☆");
+MenuButton bookmarksMenu = new MenuButton("Bookmarks");
+toolBar.getItems().addAll(...);
+```
+
+* You create all visible controls here (buttons, address input, bookmarks menu).
+* `ToolBar` is from `javafx.scene.control.ToolBar` — correct import needed.
+
+---
+
+### Tabs: create first tab and new-tab action
+
+```java
+TabPane tabPane = new TabPane();
+Tab first = BrowserTab.createBrowserTab(HOME, tabPane, addressBar);
+tabPane.getTabs().add(first);
+tabPane.getSelectionModel().select(first);
+
+newTabBtn.setOnAction(e -> {
+    Tab t = BrowserTab.createBrowserTab(HOME, tabPane, addressBar);
+    tabPane.getTabs().add(t);
+    tabPane.getSelectionModel().select(t);
+});
+```
+
+* Uses `BrowserTab.createBrowserTab(...)` to build each tab (so BrowserTab handles WebView + title updates).
+* New tab button creates and selects a new tab.
+
+---
+
+### Navigation actions (Go, Enter key, Home, Reload, Back, Forward)
+
+```java
+goBtn.setOnAction(e -> BrowserTab.loadAddress(tabPane, addressBar.getText()));
+addressBar.setOnKeyPressed(k -> { if (k.getCode() == KeyCode.ENTER) BrowserTab.loadAddress(...); });
+homeBtn.setOnAction(e -> BrowserTab.loadAddress(tabPane, HOME));
+reloadBtn.setOnAction(e -> BrowserTab.getEngine(tabPane).ifPresent(WebEngine::reload));
+backBtn.setOnAction(e -> BrowserTab.getEngine(tabPane).ifPresent(engine -> { var history = engine.getHistory(); if (history.getCurrentIndex() > 0) history.go(-1); }));
+forwardBtn.setOnAction(... similar ...);
+```
+
+* `BrowserTab.loadAddress()` normalizes the URL and tells the current `WebEngine` to load.
+* Back/Forward use `WebEngine.getHistory()` and call `history.go(-1)` or `go(1)`.
+
+---
+
+### Bookmarks integration
+
+```java
+BookmarkManager bm = new BookmarkManager();
+List<String> bookmarks = bm.loadBookmarks();
+BookmarkManager.updateBookmarksMenu(bookmarksMenu, bookmarks, tabPane);
+
+bookmarkBtn.setOnAction(e -> {
+    BrowserTab.getEngine(tabPane).ifPresent(engine -> {
+        String url = engine.getLocation();
+        if (!bookmarks.contains(url)) {
+            bookmarks.add(url);
+            bm.saveBookmarks(bookmarks);
+            BookmarkManager.updateBookmarksMenu(bookmarksMenu, bookmarks, tabPane);
+        }
+    });
+});
+```
+
+* Loads bookmarks at start, populates `bookmarksMenu`.
+* Clicking ☆ saves the current page’s URL (avoids duplicates) and updates the menu.
+
+---
+
+### Address bar sync when switching tabs
+
+```java
+tabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldT, newT) -> {
+    if (newT != null && newT.getContent() instanceof WebView) {
+        WebView view = (WebView) newT.getContent();
+        addressBar.setText(view.getEngine().getLocation());
+    }
+});
+```
+
+* When you switch tabs, it sets the address bar to the selected tab’s current URL.
+
+---
+
+# 3) How it interacts with other files
+
+* **`BrowserTab`**: All tab creation, WebView, WebEngine retrieval, and `loadAddress()` logic are delegated to `BrowserTab`. `BrowserUI` just calls `BrowserTab.createBrowserTab(...)`, `BrowserTab.loadAddress(...)`, and `BrowserTab.getEngine(...)`.
+* **`BookmarkManager`**: `BrowserUI` calls `loadBookmarks()` and `saveBookmarks()` and uses `updateBookmarksMenu()` helper to show bookmarks.
+* **`Utils`** (if present): URL normalization and title trimming are often in `BrowserTab` / `Utils`.
+
+So `BrowserUI` is the orchestrator; `BrowserTab` and `BookmarkManager` do the heavy lifting.
+
+---
+
+# 4) Important lines & patterns to watch
+
+* `BrowserTab.getEngine(tabPane).ifPresent(WebEngine::reload);` — safe optional handling to avoid NPEs if no WebEngine found.
+* `addressBar.setOnKeyPressed(...)` — listening for ENTER, good UX.
+* `BookmarkManager.updateBookmarksMenu(...)` — updates menu items dynamically (remember it replaces whole menu).
+* `tabPane.getSelectionModel().selectedItemProperty()` listener — keeps address bar in sync.
+
+---
+
+# 5) Common edits you’ll likely want to make next
+
+* **Disable back/forward when not available**
+  Add a history listener to enable/disable back/forward buttons:
+
+  ```java
+  BrowserTab.getEngine(tabPane).ifPresent(engine -> {
+      engine.getHistory().currentIndexProperty().addListener((obs, oldIdx, newIdx) -> {
+          backBtn.setDisable(newIdx.intValue() <= 0);
+          forwardBtn.setDisable(newIdx.intValue() >= engine.getHistory().getEntries().size()-1);
+      });
+  });
+  ```
+
+  (Call this when tab selection changes and when a new tab is created.)
+
+* **Show loading status / progress bar**
+  Listen to `engine.getLoadWorker().progressProperty()` and show a progress indicator.
+
+* **Favicon & nicer tab titles**
+  Use `engine.titleProperty()` and `engine.locationProperty()` to set tab text and optionally fetch favicon.
+
+* **Confirm on close / keep a blank tab**
+  If last tab closed, open new home tab — currently handled in `BrowserTab`.
+
+* **Address bar autocomplete / history**
+  Maintain an in-memory list or small DB of visited URLs.
+
+* **Style toolbar with CSS**
+  Add an external stylesheet for better visuals.
+
+* **Use FXML** if you want cleaner UI definition and controllers.
+
+---
+
+# 6) Troubleshooting tips (if things break)
+
+* **Cannot resolve `ToolBar`?**
+  Make sure import is `import javafx.scene.control.ToolBar;` and `javafx-controls` dependency exists in `pom.xml`.
+
+* **WebView not found / runtime errors?**
+  Add `javafx-web` in `pom.xml` (you already updated it earlier).
+
+* **Class not found at `mvn javafx:run`?**
+  Ensure `javafx-maven-plugin` `mainClass` refers to `org.tauficaksa.carbon_art.Main` (full package + class).
+
+* **UI freezes on heavy tasks?**
+  Long tasks must not run on JavaFX Application Thread — use `Task` or run background threads and `Platform.runLater` for UI updates.
+
+* **Address bar shows blank after navigation?**
+  Confirm `BrowserTab` updates `locationProperty()` or that `getLocation()` returns a URL.
+
+* **Bookmarks not saving**
+  Check `BookmarkManager` path (file writing errors printed to console). Ensure app has write permission to the path.
+
+---
+
+# 7) Small code improvements you can copy-paste
+
+* Set placeholder in address bar:
+
+```java
+addressBar.setPromptText("Enter URL or search term...");
+```
+
+* Normalize URL on action (if not done in BrowserTab):
+
+```java
+String text = addressBar.getText().trim();
+if (!text.isEmpty()) BrowserTab.loadAddress(tabPane, text);
+```
+
+* Set initial focus to address bar:
+
+```java
+stage.setOnShown(e -> addressBar.requestFocus());
+```
+
+---
+
+# TL;DR — What `BrowserUI` is responsible for
+
+* Create toolbar, address field, and tab container.
+* Wire user interactions (new tab, navigate, bookmark, back/forward, reload).
+* Load existing bookmarks and update menu.
+* Delegate page loading and WebEngine handling to `BrowserTab`.
+
+---
+
+Tell me the next file you want explained (or say **“show me code to disable back/forward when not available”** and I’ll drop the exact snippet into `BrowserTab`/`BrowserUI` where it belongs).
