@@ -1,0 +1,72 @@
+2. Imports
+import javafx.application.Application;
+import javafx.stage.Stage;
+
+
+Application → base class for every JavaFX app
+
+Stage → the main window of your app (like a browser window)
+
+3. Class Declaration
+public class Main extends Application {
+
+
+This means:
+
+Your Main class inherits JavaFX Application.
+
+It must override the start() method.
+
+4. main() Method
+public static void main(String[] args) {
+    launch(args);
+}
+
+
+What this does:
+
+JVM starts here.
+
+launch() tells JavaFX to start its application thread.
+
+After starting, JavaFX automatically calls your start() method.
+
+So:
+
+main() → launch() → JavaFX starts → calls start(stage)
+
+5. start(Stage stage) method
+@Override
+public void start(Stage stage) {
+    BrowserUI ui = new BrowserUI();
+    ui.start(stage);
+}
+
+
+This is the heart of JavaFX startup.
+
+What happens here:
+
+👉 Step 1 — Create your browser UI class
+BrowserUI ui = new BrowserUI();
+
+
+You created the object that handles:
+
+Toolbar
+
+Tabs
+
+WebView
+
+Bookmarks
+
+Full browser layout
+
+So BrowserUI is the actual browser, not Main.
+
+In simple kid-friendly words:
+
+Main.java is the door.
+BrowserUI is the entire house.
+Main opens the door and tells JavaFX to walk into your browser UI
